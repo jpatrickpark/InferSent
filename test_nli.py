@@ -16,7 +16,7 @@ import torch
 from torch.autograd import Variable
 import torch.nn as nn
 
-from data import get_nli, get_batch, build_vocab
+from data import get_nli_dev_test, get_batch, build_vocab
 from mutils import get_optimizer
 from models import NLINet
 
@@ -41,7 +41,7 @@ parser.add_argument("--minlr", type=float, default=1e-5, help="minimum lr")
 parser.add_argument("--max_norm", type=float, default=5., help="max norm (grad clipping)")
 
 # model
-parser.add_argument("--encoder_type", type=str, default='InferSent', help="see list of encoders")
+parser.add_argument("--encoder_type", type=str, default='InferSent', help="see list of encoders") # JP: V1 removed
 parser.add_argument("--enc_lstm_dim", type=int, default=2048, help="encoder nhid dimension")
 parser.add_argument("--n_enc_layers", type=int, default=1, help="encoder num layers")
 parser.add_argument("--fc_dim", type=int, default=512, help="nhid of fc layers")
@@ -75,13 +75,12 @@ torch.cuda.manual_seed(params.seed)
 """
 DATA
 """
-train, valid, test = get_nli(params.nlipath)
-word_vec = build_vocab(train['s1'] + train['s2'] +
-                       valid['s1'] + valid['s2'] +
+valid, test = get_nli_dev_test(params.nlipath)
+word_vec = build_vocab(valid['s1'] + valid['s2'] +
                        test['s1'] + test['s2'], params.word_emb_path)
 
 for split in ['s1', 's2']:
-    for data_type in ['train', 'valid', 'test']:
+    for data_type in ['valid', 'test']:
         eval(data_type)[split] = np.array([['<s>'] +
             [word for word in sent.split() if word in word_vec] +
             ['</s>'] for sent in eval(data_type)[split]])
@@ -114,13 +113,12 @@ encoder_types = ['InferSent', 'BLSTMprojEncoder', 'BGRUlastEncoder',
                  'InnerAttentionNAACLEncoder', 'ConvNetEncoder', 'LSTMEncoder']
 assert params.encoder_type in encoder_types, "encoder_type must be in " + \
                                              str(encoder_types)
-nli_net = NLINet(config_nli_model)
-print(nli_net)
-V = 1
-MODEL_PATH = 'encoder/infersent%s.pickle' % V
-nli_net.encoder.load_state_dict(torch.load(MODEL_PATH))
-nli_net.encoder.requires_cuda = False
 
+
+MODEL_PATH = 
+nli_net = NLINet(config_nli_model)
+nli_net.load_state_dict(torch.load(MODEL_PATH))
+print(nli_net)
 
 # loss
 weight = torch.FloatTensor(params.n_classes).fill_(1)
@@ -143,89 +141,6 @@ val_acc_best = -1e10
 adam_stop = False
 stop_training = False
 lr = optim_params['lr'] if 'sgd' in params.optimizer else None
-
-
-def trainepoch(epoch):
-    print('\nTRAINING : Epoch ' + str(epoch))
-    nli_net.train()
-    all_costs = []
-    logs = []
-    words_count = 0
-
-    last_time = time.time()
-    correct = 0.
-    # shuffle the data
-    permutation = np.random.permutation(len(train['s1']))
-
-    s1 = train['s1'][permutation]
-    s2 = train['s2'][permutation]
-    target = train['label'][permutation]
-
-
-    optimizer.param_groups[0]['lr'] = optimizer.param_groups[0]['lr'] * params.decay if epoch>1\
-        and 'sgd' in params.optimizer else optimizer.param_groups[0]['lr']
-    print('Learning rate : {0}'.format(optimizer.param_groups[0]['lr']))
-
-    for stidx in range(0, len(s1), params.batch_size):
-        # prepare batch
-        s1_batch, s1_len = get_batch(s1[stidx:stidx + params.batch_size],
-                                     word_vec, params.word_emb_dim)
-        s2_batch, s2_len = get_batch(s2[stidx:stidx + params.batch_size],
-                                     word_vec, params.word_emb_dim)
-        s1_batch, s2_batch = Variable(s1_batch.cuda()), Variable(s2_batch.cuda())
-        tgt_batch = Variable(torch.LongTensor(target[stidx:stidx + params.batch_size])).cuda()
-        k = s1_batch.size(1)  # actual batch size
-
-        # model forward
-        output = nli_net((s1_batch, s1_len), (s2_batch, s2_len))
-
-        pred = output.data.max(1)[1]
-        correct += pred.long().eq(tgt_batch.data.long()).cpu().numpy().sum() #numpy
-        assert len(pred) == len(s1[stidx:stidx + params.batch_size])
-
-        # loss
-        loss = loss_fn(output, tgt_batch)
-        all_costs.append(loss.cpu().detach().numpy()) #JP: fixed for upper version of pytorch (loss.data worked)
-        words_count += (s1_batch.nelement() + s2_batch.nelement()) / params.word_emb_dim
-
-        # backward
-        optimizer.zero_grad()
-        loss.backward()
-
-        # gradient clipping (off by default)
-        shrink_factor = 1
-        total_norm = 0
-
-        for p in nli_net.parameters():
-            if p.requires_grad:
-                p.grad.data.div_(k)  # divide by the actual batch size
-                total_norm += p.grad.data.norm() ** 2
-        total_norm = np.sqrt(total_norm.cpu())
-
-        if total_norm > params.max_norm:
-            shrink_factor = params.max_norm / total_norm
-        current_lr = optimizer.param_groups[0]['lr'] # current lr (no external "lr", for adam)
-        optimizer.param_groups[0]['lr'] = current_lr * shrink_factor # just for update
-
-        # optimizer step
-        optimizer.step()
-        optimizer.param_groups[0]['lr'] = current_lr
-
-        if len(all_costs) == 100: #JP: make it back to 100
-            current_acc = 100.*correct/(stidx+k)
-            logs.append('{0} ; loss {1} ; sentence/s {2} ; words/s {3} ; accuracy train : {4}'.format(
-                            stidx, round(np.mean(all_costs), 2),
-                            int(len(all_costs) * params.batch_size / (time.time() - last_time)),
-                            int(words_count * 1.0 / (time.time() - last_time)),
-                            round(current_acc, 2)))
-            print(logs[-1])
-            last_time = time.time()
-            words_count = 0
-            all_costs = []
-    train_acc = round(100 * correct/len(s1), 2)
-    print('results : epoch {0} ; mean accuracy train : {1}'
-          .format(epoch, train_acc))
-    return train_acc
 
 
 def evaluate(epoch, eval_type='valid', final_eval=False):
@@ -289,17 +204,11 @@ Train model on Natural Language Inference task
 """
 epoch = 1
 
-while not stop_training and epoch <= params.n_epochs:
-    train_acc = trainepoch(epoch)
-    eval_acc = evaluate(epoch, 'valid')
-    epoch += 1
-
 # Run best model on test set.
-nli_net.load_state_dict(torch.load(os.path.join(params.outputdir, params.outputmodelname)))
 
 print('\nTEST : Epoch {0}'.format(epoch))
 evaluate(1e6, 'valid', True)
 evaluate(0, 'test', True)
 
 # Save encoder instead of full model
-torch.save(nli_net.encoder.state_dict(), os.path.join(params.outputdir, params.outputmodelname + '.encoder.pkl'))
+#torch.save(nli_net.encoder.state_dict(), os.path.join(params.outputdir, params.outputmodelname + '.encoder.pkl'))

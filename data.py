@@ -39,7 +39,7 @@ def get_word_dict(sentences):
 def get_glove(word_dict, glove_path):
     # create word_vec with glove vectors
     word_vec = {}
-    with open(glove_path) as f:
+    with open(glove_path, 'r', encoding="utf-8") as f:
         for line in f:
             word, vec = line.split(' ', 1)
             if word in word_dict:
@@ -54,7 +54,6 @@ def build_vocab(sentences, glove_path):
     word_vec = get_glove(word_dict, glove_path)
     print('Vocab size : {0}'.format(len(word_vec)))
     return word_vec
-
 
 def get_nli(data_path):
     s1 = {}
@@ -90,3 +89,38 @@ def get_nli(data_path):
     test = {'s1': s1['test']['sent'], 's2': s2['test']['sent'],
             'label': target['test']['data']}
     return train, dev, test
+
+def get_nli_dev_test(data_path):
+    s1 = {}
+    s2 = {}
+    target = {}
+
+    dico_label = {'entailment': 0,  'neutral': 1, 'contradiction': 2}
+
+    for data_type in ['dev', 'test']:
+        s1[data_type], s2[data_type], target[data_type] = {}, {}, {}
+        s1[data_type]['path'] = os.path.join(data_path, 's1.' + data_type)
+        s2[data_type]['path'] = os.path.join(data_path, 's2.' + data_type)
+        target[data_type]['path'] = os.path.join(data_path,
+                                                 'labels.' + data_type)
+
+        s1[data_type]['sent'] = [line.rstrip() for line in
+                                 open(s1[data_type]['path'], 'r')]
+        s2[data_type]['sent'] = [line.rstrip() for line in
+                                 open(s2[data_type]['path'], 'r')]
+        target[data_type]['data'] = np.array([dico_label[line.rstrip('\n')]
+                for line in open(target[data_type]['path'], 'r')])
+
+        assert len(s1[data_type]['sent']) == len(s2[data_type]['sent']) == \
+            len(target[data_type]['data'])
+
+        print('** {0} DATA : Found {1} pairs of {2} sentences.'.format(
+                data_type.upper(), len(s1[data_type]['sent']), data_type))
+
+    #train = {'s1': s1['train']['sent'], 's2': s2['train']['sent'],
+    #         'label': target['train']['data']}
+    dev = {'s1': s1['dev']['sent'], 's2': s2['dev']['sent'],
+           'label': target['dev']['data']}
+    test = {'s1': s1['test']['sent'], 's2': s2['test']['sent'],
+            'label': target['test']['data']}
+    return dev, test
