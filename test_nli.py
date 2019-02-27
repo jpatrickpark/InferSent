@@ -115,7 +115,7 @@ assert params.encoder_type in encoder_types, "encoder_type must be in " + \
                                              str(encoder_types)
 
 
-MODEL_PATH = 
+MODEL_PATH = 'savedir_from_scratch/model.pickle'
 nli_net = NLINet(config_nli_model)
 nli_net.load_state_dict(torch.load(MODEL_PATH))
 print(nli_net)
@@ -166,7 +166,7 @@ def evaluate(epoch, eval_type='valid', final_eval=False):
         output = nli_net((s1_batch, s1_len), (s2_batch, s2_len))
 
         pred = output.data.max(1)[1]
-        correct += pred.long().eq(tgt_batch.data.long()).cpu().sum()
+        correct += pred.long().eq(tgt_batch.data.long()).cpu().numpy().sum() #numpy
 
     # save model
     eval_acc = round(100 * correct / len(s1), 2)
